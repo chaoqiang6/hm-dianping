@@ -29,5 +29,6 @@ public interface ISeckillVoucherService extends IService<SeckillVoucher> {
      */
     Result seckillVoucherInCache(Long voucherId) throws InterruptedException;
 
+    Result seckillVoucherInStream(Long voucherId) throws InterruptedException;
     Result createOrder(Long voucherId);
 }

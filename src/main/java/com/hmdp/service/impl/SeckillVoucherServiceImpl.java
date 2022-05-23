@@ -1,5 +1,7 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.extra.spring.SpringUtil;
@@ -29,6 +31,7 @@ import org.redisson.client.protocol.RedisStrictCommand;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -74,20 +77,77 @@ public class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper,
 
     private BlockingQueue<VoucherOrder> voucherOrders = new LinkedBlockingQueue<>();
 
-    private ExecutorService es = Executors.newSingleThreadExecutor(r -> new Thread(r,"创建订单线程"));
+    private ExecutorService es = Executors.newSingleThreadExecutor(r -> new Thread(r, "创建订单线程"));
+
     @PostConstruct
-    private void openGenOrderTask (){
-        es.submit(() ->{
-            try {
-                while (true){
-                    final VoucherOrder voucherOrder = voucherOrders.take();
-                    createOrder(voucherOrder);
+    private void openGenOrderTask() {
+        es.submit(() -> {
+            /**
+             * 每两秒
+             */
+            while (true) {
+
+                //已在命令行执行
+                // xgroup create stream.order stream.order.g1 $ MKSTREAM
+                //添加stream.order.g1消费者组订阅stream.order队列，如果没有就创建
+                //从redis的stream中获取订单数据
+                final List<MapRecord<String, Object, Object>> consumingOrders = redisTemplate.opsForStream()
+                        .read(Consumer.from("stream.order.g1", "stream.order.c1"),
+                                StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2))
+                                , StreamOffset.create(RedisConstants.SECKILL_ORDER_STREAM_KEY
+                                        , ReadOffset.lastConsumed()));
+                if (CollectionUtil.isEmpty(consumingOrders)) {
+                    //未取到订单继续循环
+                    continue;
                 }
-            } catch (InterruptedException e) {
-                log.error("阻塞队列获取元素被打断",e);
+                //取到订单，执行创建订单逻辑
+                try {
+                    for (MapRecord<String, Object, Object> consumingOrder : consumingOrders) {
+                        final RecordId ackId = consumingOrder.getId();
+                        final VoucherOrder voucherOrder = BeanUtil.mapToBean(consumingOrder.getValue(), VoucherOrder.class, false, CopyOptions.create());
+                        createOrder(voucherOrder);
+                        redisTemplate.opsForStream().acknowledge(RedisConstants.SECKILL_ORDER_STREAM_KEY, "stream.order.g1", ackId);
+                    }
+                } catch (Exception e) {
+                    //遇到异常，取waitinglist中的数据继续消费
+                    while (true) {
+                        final List<MapRecord<String, Object, Object>> waitingListReConsume = redisTemplate.opsForStream().read(Consumer.from("stream.order.g1", "stream.order.c1"), StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2))
+                                , StreamOffset.create(RedisConstants.SECKILL_ORDER_STREAM_KEY
+                                        , ReadOffset.from("0")));
+                        try {
+                            if (CollectionUtil.isEmpty(waitingListReConsume)) {
+                                break;
+                            }
+                            final MapRecord<String, Object, Object> reConsumingOrder = waitingListReConsume.get(0);
+                            final RecordId ackId = reConsumingOrder.getId();
+                            final VoucherOrder voucherOrder = BeanUtil.mapToBean(reConsumingOrder.getValue(), VoucherOrder.class, false, CopyOptions.create());
+                            createOrder(voucherOrder);
+                            redisTemplate.opsForStream().acknowledge(RedisConstants.SECKILL_ORDER_STREAM_KEY, "stream.order.g1", ackId);
+                        } catch (Exception ee) {
+                            //重复消费失败，n次通知管理员
+                            log.error("消费订单信息失败",e);
+                            continue;
+                        }
+                    }
+
+
+                }
+
+
             }
         });
     }
+
+    Runnable handleOrderFromQueue = () -> es.submit(() -> {
+        try {
+            while (true) {
+                final VoucherOrder voucherOrder = voucherOrders.take();
+                createOrder(voucherOrder);
+            }
+        } catch (InterruptedException e) {
+            log.error("阻塞队列获取元素被打断", e);
+        }
+    });
 
     static {
         secKillScript = new DefaultRedisScript<>();
@@ -122,14 +182,14 @@ public class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper,
 //        final boolean lockSuc = mLock.tryLock(3, TimeUnit.SECONDS);
 //        final SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, redisTemplate);
 //        final RLock mLock = redissonClient.getLock("order:" + userId);
-        final boolean lockSuc = rLock.tryLock(10L,TimeUnit.SECONDS);
+        final boolean lockSuc = rLock.tryLock(10L, TimeUnit.SECONDS);
         if (!lockSuc) {
             return Result.fail("怀疑你开挂");
         }
         try {
             ISeckillVoucherService proxy = SpringUtil.getBean(ISeckillVoucherService.class);
             return proxy.createOrder(voucherId);
-        }finally {
+        } finally {
 //            lock.unLock("order:"+userId);
             rLock.unlock();
 //            mLock.unlock();
@@ -140,14 +200,14 @@ public class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper,
     @Override
     public Result seckillVoucherInCache(Long voucherId) throws InterruptedException {
         final Long userId = UserHolder.getUser().getId();
-        if(userId == null){
+        if (userId == null) {
             return Result.fail("非法token");
         }
         final Integer result = redisTemplate.execute(secKillScript, Collections.EMPTY_LIST, voucherId.toString(), userId.toString()).intValue();
-        if(result == -1){
+        if (result == -1) {
             return Result.fail("该优惠券已售罄");
         }
-        if(result == 2){
+        if (result == 2) {
             return Result.fail("不允许重复下单");
         }
         VoucherOrder voucherOrder = new VoucherOrder();
@@ -158,6 +218,25 @@ public class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper,
 
 
         return Result.ok(voucherOrder.getId());
+    }
+
+    @Override
+    public Result seckillVoucherInStream(Long voucherId) throws InterruptedException {
+        final Long userId = UserHolder.getUser().getId();
+        if (userId == null) {
+            return Result.fail("非法token");
+        }
+        final long orderId = idWorker.nextId("order");
+        final Long result = redisTemplate.execute(secKillScript, Collections.EMPTY_LIST, voucherId.toString(), userId.toString(),String.valueOf(orderId));
+        if (result == -1) {
+            return Result.fail("该优惠券已售罄");
+        }
+        if (result == 2) {
+            return Result.fail("不允许重复下单");
+        }
+
+
+        return Result.ok(orderId);
     }
 
     /**
@@ -195,12 +274,12 @@ public class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper,
         Integer count = voucherOrderService.query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
         if (count > 0) {
             log.error("数据库中已存在该订单");
-            return ;
+            return;
         }
         final boolean updated = update().setSql("stock = stock - 1").eq("voucher_id", voucherOrder.getVoucherId()).gt("stock", 0).update();
         if (!updated) {
             log.error("该优惠券已售罄");
-            return ;
+            return;
         }
 //        voucherOrder.setId(idWorker.nextId("order"));
         voucherOrderService.save(voucherOrder);
