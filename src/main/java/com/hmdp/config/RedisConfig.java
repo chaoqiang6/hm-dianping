@@ -11,6 +11,9 @@ import com.fasterxml.jackson.datatype.jsr310.deser.LocalTimeDeserializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateSerializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalTimeSerializer;
+import org.redisson.Redisson;
+import org.redisson.api.RedissonClient;
+import org.redisson.config.Config;
 import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,4 +42,23 @@ public class RedisConfig {
         redisTemplate.setHashValueSerializer(RedisSerializer.json());
         return redisTemplate;
     }
+
+    @Bean
+    public RedissonClient redissonClient(){
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
+        return Redisson.create(config);
+    }
+//    @Bean
+//    public RedissonClient redissonClient1(){
+//        Config config = new Config();
+//        config.useSingleServer().setAddress("redis://127.0.0.1:6380");
+//        return Redisson.create(config);
+//    }
+//    @Bean
+//    public RedissonClient redissonClient2(){
+//        Config config = new Config();
+//        config.useSingleServer().setAddress("redis://127.0.0.1:6381");
+//        return Redisson.create(config);
+//    }
 }

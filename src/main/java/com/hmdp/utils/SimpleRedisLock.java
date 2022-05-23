@@ -35,7 +35,6 @@ public class SimpleRedisLock implements ILock{
     public boolean tryLock(Duration timeout) {
         String threadId = ID_PREFIX+Thread.currentThread().getId();
         final Boolean suc = redisTemplate.opsForValue().setIfAbsent(LOCK_PREFIX + key, threadId, timeout);
-
         return BooleanUtil.isTrue(suc);
     }
 

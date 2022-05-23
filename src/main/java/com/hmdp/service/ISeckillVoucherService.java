@@ -16,10 +16,18 @@ public interface ISeckillVoucherService extends IService<SeckillVoucher> {
 
     /**
      * 秒杀
+     * @param voucherId 优惠券id
+     * @return 执行结果
+     */
+    Result seckillVoucher(Long voucherId) throws InterruptedException;
+
+    /**
+     * 秒杀，通过缓存操作，如果缓存执行成功，再将用户id和优惠券id放入消息队列，其他线程订阅该队列对数据库进行写入操作
      * @param voucherId
      * @return
+     * @throws InterruptedException
      */
-    Result seckillVoucher(Long voucherId) ;
+    Result seckillVoucherInCache(Long voucherId) throws InterruptedException;
 
     Result createOrder(Long voucherId);
 }

@@ -23,7 +23,8 @@ class HmDianPingApplicationTests {
     private CacheClient cacheClient;
     @Autowired
     private RedisIdWorker redisIdWorker;
-    private ExecutorService es = Executors.newFixedThreadPool(50);
+    private ExecutorService es = Executors.newFixedThreadPool(8);
+
 
     @Test
     public void testSaveHotData() throws InterruptedException {
