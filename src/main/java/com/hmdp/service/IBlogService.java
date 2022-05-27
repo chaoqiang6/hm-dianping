@@ -19,4 +19,16 @@ public interface IBlogService extends IService<Blog> {
     Result queryHotBlog(Integer current);
 
     void likeBlog(Long id);
+
+    Result queryBlogLikes(Long id);
+
+    Result saveBlog(Blog blog);
+
+    /**
+     * 分页查询关注博主推送博客消息流
+     * @param lastId 上次查看消息id
+     * @param offset 偏移量大小
+     * @return
+     */
+    Result queryBlogOfFollow(Long lastId, Integer offset);
 }
