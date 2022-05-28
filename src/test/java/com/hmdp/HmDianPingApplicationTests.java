@@ -38,7 +38,7 @@ class HmDianPingApplicationTests {
     @Test
     public void testSaveHotData() throws InterruptedException {
         final Shop byId = shopService.getById(1L);
-        cacheClient.setWithLogicalExpire(RedisConstants.CACHE_SHOP_KEY+1,byId, Duration.ofSeconds(10));
+        cacheClient.setWithLogicalExpire(RedisConstants.CACHE_SHOP_KEY + 1, byId, Duration.ofSeconds(10));
     }
 
     @Test
@@ -47,7 +47,7 @@ class HmDianPingApplicationTests {
         final int coreCount = Runtime.getRuntime().availableProcessors();
         CountDownLatch countDownLatch = new CountDownLatch(coreCount);
         //定义线程执行方法对象
-        Runnable runnable = ()->{
+        Runnable runnable = () -> {
             for (int i = 0; i < 1000; i++) {
                 redisIdWorker.nextId("test0517id");
             }
@@ -61,21 +61,30 @@ class HmDianPingApplicationTests {
         final long expend = System.currentTimeMillis() - begin;
         System.out.println(expend);
     }
+
     @Test
-    public void importShopLocation(){
+    public void importShopLocation() {
         final Map<Long, List<Shop>> groupingByTypeId = shopService.list().stream().collect(Collectors.groupingBy(Shop::getTypeId));
         for (Map.Entry<Long, List<Shop>> entry : groupingByTypeId.entrySet()) {
-            stringRedisTemplate.opsForGeo().add(RedisConstants.SHOP_GEO_KEY+entry.getKey(),
+            stringRedisTemplate.opsForGeo().add(RedisConstants.SHOP_GEO_KEY + entry.getKey(),
                     entry.getValue().stream()
-                            .map(shop -> new RedisGeoCommands.GeoLocation<>(shop.getId().toString(),new Point(shop.getX(),shop.getY())))
+                            .map(shop -> new RedisGeoCommands.GeoLocation<>(shop.getId().toString(), new Point(shop.getX(), shop.getY())))
                             .collect(Collectors.toList()));
         }
-
     }
 
-
-
-
+    @Test
+    public void testHyperLogLog() {
+        String[] values = new String[1000];
+        for (int i = 0; i < 10000000; i++) {
+            values[i % 1000] = "user" + i;
+            if(i%1000 == 999){
+                stringRedisTemplate.opsForHyperLogLog().add("uv",values);
+            }
+        }
+        final Long uv = stringRedisTemplate.opsForHyperLogLog().size("uv");
+        System.out.println(uv);
+    }
 
 
 }
