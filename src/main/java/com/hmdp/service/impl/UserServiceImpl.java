@@ -2,6 +2,8 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.collection.CollectionUtil;
+import cn.hutool.core.date.DateTime;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -18,13 +20,17 @@ import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.function.BiFunction;
 
 /**
@@ -44,6 +50,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private StringRedisTemplate stringRedisTemplate;
 
     private ObjectMapper objectMapper;
+
     /**
      * 校验手机号
      * 如果不符合，返回错误信息
@@ -61,9 +68,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.fail("手机号格式错误");
         }
         final String code = RandomUtil.randomNumbers(6);
-        session.setAttribute("code",code);
-        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_CODE_KEY +phone,code, Duration.ofMinutes(RedisConstants.LOGIN_CODE_TTL));
-        log.debug("短信验证码{}",code);
+        session.setAttribute("code", code);
+        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_CODE_KEY + phone, code, Duration.ofMinutes(RedisConstants.LOGIN_CODE_TTL));
+        log.debug("短信验证码{}", code);
         return Result.ok();
     }
 
@@ -87,15 +94,46 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         final UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
 //        session.setAttribute("user",userDTO);
         final String token = UUID.randomUUID().toString(true);
-        stringRedisTemplate.opsForHash().putAll(RedisConstants.LOGIN_USER_KEY+token,BeanUtil.beanToMap(userDTO,new HashMap<>(),CopyOptions.create().setIgnoreNullValue(true).setFieldValueEditor((fieldName, fieldValue) -> fieldValue.toString())));
-        stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY+token,Duration.ofSeconds(RedisConstants.LOGIN_USER_TTL));
+        stringRedisTemplate.opsForHash().putAll(RedisConstants.LOGIN_USER_KEY + token, BeanUtil.beanToMap(userDTO, new HashMap<>(), CopyOptions.create().setIgnoreNullValue(true).setFieldValueEditor((fieldName, fieldValue) -> fieldValue.toString())));
+        stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token, Duration.ofSeconds(RedisConstants.LOGIN_USER_TTL));
         return Result.ok(token);
+    }
+
+    @Override
+    public Result sign(Long userId, LocalDateTime now) {
+        String key = RedisConstants.USER_SIGN_KEY + userId + now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        final int dayOfMonth = now.getDayOfMonth();
+        stringRedisTemplate.opsForValue().setBit(key,dayOfMonth-1,true);
+
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount(Long userId) {
+        final LocalDateTime now = LocalDateTime.now();
+        String key = RedisConstants.USER_SIGN_KEY + userId + now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        final int dayOfMonth = now.getDayOfMonth();
+        //bitfield sign:1011:202205 get u28 0
+        final List<Long> values = stringRedisTemplate.opsForValue().bitField(key, BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(BitFieldSubCommands.Offset.offset(0L)));
+        if (CollectionUtil.isEmpty(values)) {
+            return Result.ok(0);
+        }
+        Long num = values.get(0);
+        int count = 0;
+        while (num > 0) {
+            if ((num & 1) == 0) {
+                break;
+            }
+            num >>>= 1;
+            count++;
+        }
+        return Result.ok(count);
     }
 
     private User createUserWithPhone(String phone) {
         User user = new User();
         user.setPhone(phone);
-        user.setNickName("user_"+RandomUtil.randomString(10));
+        user.setNickName("user_" + RandomUtil.randomString(10));
         save(user);
         return user;
     }

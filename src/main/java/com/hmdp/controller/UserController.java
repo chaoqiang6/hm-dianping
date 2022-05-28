@@ -2,6 +2,7 @@ package com.hmdp.controller;
 
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.date.DateTime;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
+import java.time.LocalDateTime;
 
 /**
  * <p>
@@ -97,5 +99,19 @@ public class UserController {
         // 返回
         return Result.ok(userDTO);
     }
+
+    @PostMapping("/sign")
+    public Result sign(){
+        final Long userId = UserHolder.getUser().getId();
+        return userService.sign(userId, LocalDateTime.now());
+    }
+
+    @GetMapping("/sign/count")
+    public Result signCount(){
+        final Long userId = UserHolder.getUser().getId();
+        return userService.signCount(userId);
+    }
+
+
 
 }

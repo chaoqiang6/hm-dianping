@@ -1,11 +1,13 @@
 package com.hmdp.service;
 
+import cn.hutool.core.date.DateTime;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.User;
 
 import javax.servlet.http.HttpSession;
+import java.time.LocalDateTime;
 
 /**
  * <p>
@@ -26,4 +28,8 @@ public interface IUserService extends IService<User> {
      * @return
      */
     Result login(LoginFormDTO loginForm, HttpSession session);
+
+    Result sign(Long userId, LocalDateTime now);
+
+    Result signCount(Long userId);
 }
